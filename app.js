@@ -170,24 +170,26 @@
     const destino = !NATIVO && proxy ? proxy + (proxy.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) : url;
     const headers = NATIVO ? { 'User-Agent': UA_MOVIL, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'es-PE,es;q=0.9,en;q=0.8' } : {};
     const r = await pedir(destino, { headers });
-    if (!r.ok) throw errorDe(`El sitio respondió ${r.status}.`, 'http', `html ${r.status}`);
+    if (!r.ok) throw errorDe(`El sitio respondió ${r.status}.`, [401, 403, 429, 503].includes(r.status) || ES_BLOQUEO.test(r.texto.slice(0, 4000)) ? 'bloqueo' : 'http', `html ${r.status}`);
+    if (ES_BLOQUEO.test(r.texto.slice(0, 4000)) && r.texto.length < 40000) throw errorDe('El sitio pidió verificación humana.', 'bloqueo', 'html verificación');
     return extraer(r.texto, url);
   }
 
   // Ruta 2: Jina Reader (servicio gratuito que entrega el artículo limpio en Markdown, con CORS abierto)
   async function viaJina(url) {
     const r = await pedir('https://r.jina.ai/' + url, { headers: { Accept: 'text/plain' }, timeout: 40000 });
-    if (!r.ok) throw errorDe(`El lector externo respondió ${r.status}.`, 'http', `jina ${r.status}`);
+    if (!r.ok) throw errorDe(`El lector externo respondió ${r.status}.`, r.status === 429 ? 'http' : 'bloqueo', `jina ${r.status}`);
+    if (r.texto.length < 4000 && ES_BLOQUEO.test(r.texto)) throw errorDe('El sitio pidió verificación humana.', 'bloqueo', 'jina verificación');
     return desdeMarkdown(r.texto, url);
   }
 
   async function obtenerArticulo(url, alAvanzar = () => {}) {
-    const fallos = [];
+    const fallos = [], tipos = [];
     const usarHtml = NATIVO || (estado.ajustes.proxy || '').trim();
     let mejor = null;
     if (usarHtml) {
       alAvanzar('Descargando el artículo…');
-      try { mejor = await viaHtml(url); } catch (e) { fallos.push(e.detalle || e.message); }
+      try { mejor = await viaHtml(url); } catch (e) { fallos.push(e.detalle || e.message); tipos.push(e.tipo); }
     }
     // si no hubo texto o quedó corto (muro de pago, página armada con JavaScript), prueba el lector externo
     if (!mejor || mejor.palabras < 250) {
@@ -195,13 +197,39 @@
       try {
         const j = await viaJina(url);
         if (!mejor || j.palabras > mejor.palabras) mejor = j;
-      } catch (e) { fallos.push(e.detalle || e.message); }
+      } catch (e) { fallos.push(e.detalle || e.message); tipos.push(e.tipo); }
     }
     if (!mejor) {
-      throw errorDe('No pude descargar el artículo. Revisa tu conexión o ábrelo en la web.', 'red', fallos.join(' · '));
+      const bloqueo = tipos.includes('bloqueo');
+      throw errorDe(bloqueo ? 'Este sitio bloquea la lectura automática de sus artículos.' : 'No pude descargar el artículo. Revisa tu conexión.',
+        bloqueo ? 'bloqueo' : 'red', fallos.join(' · '));
     }
     return mejor;
   }
+
+  const ES_BLOQUEO = /just a moment|verify(ing)? (that )?you are (a )?human|attention required|access denied|enable javascript and cookies|cf-chl|captcha|are you a robot/i;
+
+  // Enlace para leer la página traducida en el navegador (Google Translate)
+  function urlTraducida(url) {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace(/-/g, '--').replace(/\./g, '-');
+      const q = new URLSearchParams(u.search);
+      q.set('_x_tr_sl', 'en'); q.set('_x_tr_tl', 'es'); q.set('_x_tr_hl', 'es'); q.set('_x_tr_pto', 'wapp');
+      return `https://${host}.translate.goog${u.pathname}?${q}`;
+    } catch { return url; }
+  }
+
+  // Aprende qué fuentes bloquean el texto completo para no hacerte esperar
+  async function registrarResultado(fuente, ok) {
+    const mapa = (await Repo.get('lecturaFuentes')) || {};
+    const r = mapa[fuente] || { ok: 0, fallo: 0 };
+    if (ok) { r.ok++; r.fallo = 0; } else r.fallo++;
+    mapa[fuente] = r;
+    estado.lecturaFuentes = mapa;
+    Repo.set('lecturaFuentes', mapa);
+  }
+  const fuenteBloqueada = (fuente) => { const r = estado.lecturaFuentes?.[fuente]; return !!r && r.fallo >= 2 && r.ok === 0; };
 
   // Convierte el Markdown de Jina en bloques seguros
   function desdeMarkdown(md, url) {
@@ -252,7 +280,7 @@
     const primerP = bloques.findIndex((b) => b.t === 'p');
     const finales = bloques.filter((b, i) => !(b.t === 'h' && i < primerP));
     const palabras = finales.filter((b) => TIPOS_TEXTO.has(b.t)).reduce((s, b) => s + b.x.split(' ').length, 0);
-    if (palabras < 80) throw errorDe('No encontré el texto del artículo. Puede tener muro de pago.', 'extraccion', `jina ${palabras} palabras`);
+    if (palabras < 80) throw errorDe('No encontré el texto del artículo. Puede tener muro de pago.', 'bloqueo', `jina ${palabras} palabras`);
     return { bloques: finales, palabras, autor };
   }
 
@@ -418,13 +446,21 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
   }
 
   // Descarga (o recupera) el artículo y, si toca, lo traduce. Una sola tarea por nota.
-  function cargarArticulo(n, { traducirAhora = estado.ajustes.autoTraducir } = {}) {
+  function cargarArticulo(n, { traducirAhora = estado.ajustes.autoTraducir, forzar = false } = {}) {
     const clave = n.id;
     if (enCurso.has(clave)) return enCurso.get(clave);
     const p = (async () => {
       let art = await Repo.articulo(n.id);
       if (!art || !art.bloques?.length) {
-        const ex = await obtenerArticulo(n.url, (txt) => { if (esLectorDe(n.id)) lectorEstado(txt); });
+        if (!forzar && fuenteBloqueada(n.fuente)) throw errorDe(`${n.fuente} bloquea la lectura automática de sus artículos.`, 'bloqueo', 'fuente marcada como bloqueada');
+        let ex;
+        try {
+          ex = await obtenerArticulo(n.url, (txt) => { if (esLectorDe(n.id)) lectorEstado(txt); });
+        } catch (e) {
+          if (e.tipo === 'bloqueo') registrarResultado(n.fuente, false);
+          throw e;
+        }
+        registrarResultado(n.fuente, true);
         art = { id: n.id, url: n.url, idioma: esIngles(n) ? 'en' : 'es', bloques: ex.bloques, palabras: ex.palabras, autor: ex.autor, tr: {}, descargado: Date.now() };
         await Repo.guardarArticulo(art);
       }
@@ -586,12 +622,12 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
     cargarEnLector();
   }
 
-  function cargarEnLector() {
+  function cargarEnLector(forzar = false) {
     const n = lector.nota;
     if (!n) return;
     lector.error = null;
     pintarLector();
-    cargarArticulo(n)
+    cargarArticulo(n, { forzar })
       .then((art) => { if (esLectorDe(n.id)) { lector.art = art; pintarLector(); } })
       .catch((e) => {
         if (!esLectorDe(n.id)) return;
@@ -626,7 +662,7 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
         ? (lector.modo === 'en' ? 'Original en inglés' : completo ? `Traducido · ${art.palabras} palabras` : 'Traducción pendiente')
         : `${art.palabras} palabras · ${Math.max(1, Math.round(art.palabras / 220))} min`;
     }
-    if (lector.error) estadoTxt = 'Sin texto completo';
+    if (lector.error) estadoTxt = lector.error.tipo === 'bloqueo' ? 'Solo resumen · sitio protegido' : 'Sin texto completo';
 
     let cuerpo = '';
     if (art) {
@@ -683,6 +719,16 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
 
   function avisoError(e) {
     if (e.tipo === 'sinclave' || e.tipo === 'clave') return avisoClave();
+    if (e.tipo === 'bloqueo' && lector.nota) {
+      const n = lector.nota;
+      const ingles = esIngles(n);
+      return `<div class="lec-aviso"><p><strong>${esc(n.fuente)} no deja que las apps lean sus artículos.</strong> Usa una protección anti-robots o un muro de pago. Puedes leerlo completo en tu navegador${ingles ? ', ya traducido al español por Google' : ''}.</p>
+        <div class="lec-botones">
+          <a class="boton primario" href="${esc(urlSegura(ingles ? urlTraducida(n.url) : n.url))}" target="_blank" rel="noopener">${ingles ? 'Leer traducido en el navegador' : 'Abrir en el navegador'}</a>
+          <button class="boton" data-lector="forzar">Intentar de nuevo</button>
+        </div>
+        ${e.detalle ? `<p class="lec-detalle mono">Detalle: ${esc(e.detalle)}</p>` : ''}</div>`;
+    }
     return `<div class="lec-aviso"><p><strong>No pude cargar el texto completo.</strong> ${esc(e.message || '')}</p>
       ${e.detalle ? `<p class="lec-detalle mono">Detalle: ${esc(e.detalle)}</p>` : ''}
       <button class="boton" data-lector="reintentar">Reintentar</button></div>`;
@@ -787,7 +833,9 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
 
       <h2 class="rotulo" style="margin-top:20px">Fuentes <small>${okN}/${fuentes.length} respondieron</small></h2>
       <ul class="fuentes">${fuentes.map((f) => `<li><span>${esc(f.nombre)} <span style="opacity:.6">${esc((f.idioma || '').toUpperCase())}</span></span>` +
-        `<span class="${f.ok ? 'ok' : 'ko'}" title="${esc(f.error || '')}">${f.ok ? `✓ ${f.n}` : '✗ falló'}</span></li>`).join('')}</ul>
+        `<span class="${f.ok ? 'ok' : 'ko'}" title="${esc(f.error || '')}">${fuenteBloqueada(f.nombre) ? '<span class="solo-resumen">solo resumen</span> ' : ''}${f.ok ? `✓ ${f.n}` : '✗ falló'}</span></li>`).join('')}</ul>
+      <div class="ajuste"><div>Reiniciar fuentes bloqueadas<small>Vuelve a intentar el texto completo en todas las fuentes</small></div>
+        <button class="boton" data-accion="desbloquear">Reiniciar</button></div>
       <div class="pie">
         ${d ? `Generado: ${esc(new Date(d.generado).toLocaleString('es-PE'))}<br>` : ''}
         ${d?.totales ? `Notas: ${d.totales.notas} · traducidas: ${d.totales.traducidas}${d.totales.pendientes ? ` · en cola: ${d.totales.pendientes}` : ''}<br>` : ''}
@@ -836,6 +884,7 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
       if (a === 'ajustes') return abrirAjustes();
       if (a === 'traducir') return iniciarTraduccion();
       if (a === 'reintentar') return cargarEnLector();
+      if (a === 'forzar') return cargarEnLector(true);
     }
 
     const aj = t.closest('[data-ajuste]');
@@ -869,6 +918,7 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
         acc.disabled = false; acc.textContent = 'Probar clave';
         return;
       }
+      if (a === 'desbloquear') { estado.lecturaFuentes = {}; await Repo.set('lecturaFuentes', {}); toast('Listo: se volverá a intentar en todas las fuentes'); return abrirAjustes(); }
       if (a === 'limpiar') {
         const todos = await Repo.articulos();
         let n = 0;
@@ -928,9 +978,10 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
 
   // ---------- arranque ----------
   (async () => {
-    const [datos, ajustes, vista, ultimaVisita, guardados] = await Promise.all([
-      Repo.get('datos'), Repo.get('ajustes'), Repo.get('vista'), Repo.get('ultimaVisita'), Repo.guardados(),
+    const [datos, ajustes, vista, ultimaVisita, guardados, lecturaFuentes] = await Promise.all([
+      Repo.get('datos'), Repo.get('ajustes'), Repo.get('vista'), Repo.get('ultimaVisita'), Repo.guardados(), Repo.get('lecturaFuentes'),
     ]);
+    estado.lecturaFuentes = lecturaFuentes || {};
     if (ajustes) estado.ajustes = { ...estado.ajustes, ...ajustes };
     aplicarEscala();
     if (vista && (vista === 'hoy' || vista === 'ultimo' || vista === 'guardados' || CATEGORIAS[vista])) estado.vista = vista;
