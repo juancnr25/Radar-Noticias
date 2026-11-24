@@ -1,0 +1,85 @@
+name: Actualizar noticias y publicar
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  construir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Configurar GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Instalar dependencias del recolector
+        working-directory: scripts
+        run: npm install --no-audit --no-fund
+
+      - name: Recolectar, traducir y resumir
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
+          GROQ_MODEL_RESPALDO: ${{ vars.GROQ_MODEL_RESPALDO }}
+          MAX_TRADUCIR: ${{ vars.MAX_TRADUCIR }}
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+          SALIDA: _site/data/noticias.json
+        run: node scripts/actualizar.mjs
+
+      - name: Armar el sitio
+        run: |
+          cp index.html styles.css app.js config.js sw.js manifest.webmanifest _site/
+          cp -r icons _site/
+          ls -la _site _site/data
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  publicar:
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Publicar en GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+
+  mantener-activo:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Commit de mantenimiento si hace falta
+        run: |
+          ultimo=$(git log -1 --format=%ct)
+          ahora=$(date +%s)
+          dias=$(( (ahora - ultimo) / 86400 ))
+          echo "Días desde el último commit: $dias"
+          if [ "$dias" -ge 45 ]; then
+            git config user.name "radar-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: mantener activo el workflow programado"
+            git push
+          fi
