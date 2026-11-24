@@ -30,8 +30,6 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
-
       - name: Preparar la app web
         env:
           SITE_URL: ${{ vars.SITE_URL }}
