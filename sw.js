@@ -1,5 +1,5 @@
 /* Radar · service worker. Sube CACHE_VERSION en cada cambio de la app. */
-const CACHE_VERSION = 'radar-v1.1.0';
+const CACHE_VERSION = 'radar-v1.1.1';
 const SHELL = `${CACHE_VERSION}-shell`;
 const DATOS = 'radar-datos';
 const IMAGENES = 'radar-img';

@@ -263,3 +263,4 @@ h1 { margin: 0; font-family: var(--mono); font-size: 18px; letter-spacing: .32em
 .campo .fila { display: flex; gap: 8px; }
 .campo .fila input { flex: 1; font-family: var(--mono); font-size: 13px; }
 .fila-botones { padding: 10px 0; border-bottom: 1px solid var(--linea); }
+.lec-detalle { font-size: 11px !important; color: var(--muy-tenue) !important; word-break: break-word; }

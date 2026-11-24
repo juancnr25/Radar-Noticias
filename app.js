@@ -139,20 +139,121 @@
   }
 
   // ================= TEXTO COMPLETO =================
-  async function descargarHtml(url) {
-    let destino = url;
-    const proxy = (estado.ajustes.proxy || '').trim();
-    if (!NATIVO && proxy) destino = proxy + (proxy.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url);
-    let r;
-    try {
-      r = await fetch(destino, { credentials: 'omit', redirect: 'follow' });
-    } catch (e) {
-      const err = new Error(NATIVO ? 'Sin conexión o el sitio no respondió.' : 'cors');
-      err.tipo = NATIVO ? 'red' : (proxy ? 'red' : 'cors');
-      throw err;
+  // ---------- red: nativa en el APK, fetch normal en la web ----------
+  const UA_MOVIL = 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36';
+  const httpNativo = () => (NATIVO && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) || null;
+
+  // Devuelve { ok, status, texto, header(nombre) } con la misma forma en APK y web.
+  async function pedir(url, { method = 'GET', headers = {}, body = null, timeout = 25000 } = {}) {
+    const H = httpNativo();
+    if (H) {
+      const r = await H.request({ url, method, headers, data: body ?? undefined, responseType: 'text', connectTimeout: timeout, readTimeout: timeout });
+      const datos = r.data;
+      const texto = typeof datos === 'string' ? datos : JSON.stringify(datos ?? '');
+      const hs = {};
+      for (const [k, v] of Object.entries(r.headers || {})) hs[k.toLowerCase()] = v;
+      return { ok: r.status >= 200 && r.status < 300, status: r.status, texto, header: (n) => hs[n.toLowerCase()] };
     }
-    if (!r.ok) { const err = new Error(`El sitio respondió ${r.status}.`); err.tipo = 'http'; throw err; }
-    return r.text();
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const r = await fetch(url, { method, headers, body: body == null ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)), signal: ctrl.signal, credentials: 'omit' });
+      return { ok: r.ok, status: r.status, texto: await r.text(), header: (n) => r.headers.get(n) };
+    } finally { clearTimeout(t); }
+  }
+
+  const errorDe = (mensaje, tipo, detalle) => Object.assign(new Error(mensaje), { tipo, detalle });
+
+  // Ruta 1: descargar el HTML de la página (APK nativo o proxy propio)
+  async function viaHtml(url) {
+    const proxy = (estado.ajustes.proxy || '').trim();
+    const destino = !NATIVO && proxy ? proxy + (proxy.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) : url;
+    const headers = NATIVO ? { 'User-Agent': UA_MOVIL, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'es-PE,es;q=0.9,en;q=0.8' } : {};
+    const r = await pedir(destino, { headers });
+    if (!r.ok) throw errorDe(`El sitio respondió ${r.status}.`, 'http', `html ${r.status}`);
+    return extraer(r.texto, url);
+  }
+
+  // Ruta 2: Jina Reader (servicio gratuito que entrega el artículo limpio en Markdown, con CORS abierto)
+  async function viaJina(url) {
+    const r = await pedir('https://r.jina.ai/' + url, { headers: { Accept: 'text/plain' }, timeout: 40000 });
+    if (!r.ok) throw errorDe(`El lector externo respondió ${r.status}.`, 'http', `jina ${r.status}`);
+    return desdeMarkdown(r.texto, url);
+  }
+
+  async function obtenerArticulo(url, alAvanzar = () => {}) {
+    const fallos = [];
+    const usarHtml = NATIVO || (estado.ajustes.proxy || '').trim();
+    let mejor = null;
+    if (usarHtml) {
+      alAvanzar('Descargando el artículo…');
+      try { mejor = await viaHtml(url); } catch (e) { fallos.push(e.detalle || e.message); }
+    }
+    // si no hubo texto o quedó corto (muro de pago, página armada con JavaScript), prueba el lector externo
+    if (!mejor || mejor.palabras < 250) {
+      alAvanzar(mejor ? 'Buscando el texto completo…' : 'Descargando con el lector externo…');
+      try {
+        const j = await viaJina(url);
+        if (!mejor || j.palabras > mejor.palabras) mejor = j;
+      } catch (e) { fallos.push(e.detalle || e.message); }
+    }
+    if (!mejor) {
+      throw errorDe('No pude descargar el artículo. Revisa tu conexión o ábrelo en la web.', 'red', fallos.join(' · '));
+    }
+    return mejor;
+  }
+
+  // Convierte el Markdown de Jina en bloques seguros
+  function desdeMarkdown(md, url) {
+    let cuerpo = md;
+    const marca = md.indexOf('Markdown Content:');
+    if (marca >= 0) cuerpo = md.slice(marca + 'Markdown Content:'.length);
+    const autor = (/^Author:\s*(.+)$/m.exec(md) || [])[1] || '';
+    const limpiarInline = (t) => t
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/(\*\*|__|\*|_|`)/g, '')
+      .replace(/\s+/g, ' ').trim();
+    const bloques = [];
+    const vistas = new Set();
+    const agregarImg = (src, alt) => {
+      try { src = new URL(src, url).href; } catch { return; }
+      if (!/^https?:/.test(src) || vistas.has(src) || /pixel|tracking|1x1|logo|avatar|icon/i.test(src)) return;
+      vistas.add(src); bloques.push({ t: 'img', src, alt: alt || '' });
+    };
+    const trozos = cuerpo.replace(/\r/g, '').split(/\n\s*\n/);
+    for (let trozo of trozos) {
+      trozo = trozo.trim();
+      if (!trozo) continue;
+      const lineas = trozo.split('\n');
+      // encabezado setext (Título\n=====)
+      if (lineas.length === 2 && /^[=-]{3,}$/.test(lineas[1].trim())) { const t = limpiarInline(lineas[0]); if (t) bloques.push({ t: 'h', x: t }); continue; }
+      if (/^#{1,6}\s/.test(trozo)) { const t = limpiarInline(trozo.replace(/^#{1,6}\s*/, '')); if (t) bloques.push({ t: 'h', x: t }); continue; }
+      // imágenes sueltas
+      const imgs = [...trozo.matchAll(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g)];
+      const sinImg = limpiarInline(trozo);
+      if (imgs.length && sinImg.length < 3) { imgs.forEach((m) => agregarImg(m[2], m[1])); continue; }
+      // descarta menús: muchos enlaces y poco texto propio
+      const enlaces = (trozo.match(/\]\(/g) || []).length;
+      const textoEnlaces = [...trozo.matchAll(/\[([^\]]*)\]\(/g)].reduce((s, m) => s + m[1].length, 0);
+      if (enlaces >= 3 && textoEnlaces / Math.max(1, sinImg.length) > 0.6) continue;
+      if (lineas.every((l) => /^\s*([-*+]|\d+\.)\s+/.test(l))) {
+        for (const l of lineas) { const t = limpiarInline(l.replace(/^\s*([-*+]|\d+\.)\s+/, '')); if (t.length > 2) bloques.push({ t: 'li', x: t }); }
+        continue;
+      }
+      if (lineas.every((l) => /^\s*>/.test(l))) { const t = limpiarInline(trozo.replace(/^\s*>\s?/gm, '')); if (t) bloques.push({ t: 'q', x: t }); continue; }
+      if (/^[-*_]{3,}$/.test(trozo)) continue;
+      imgs.forEach((m) => agregarImg(m[2], m[1]));
+      if (sinImg.length > 1) bloques.push({ t: 'p', x: sinImg });
+      if (bloques.length > 300) break;
+    }
+    // quita encabezados antes del primer párrafo (titular repetido)
+    const primerP = bloques.findIndex((b) => b.t === 'p');
+    const finales = bloques.filter((b, i) => !(b.t === 'h' && i < primerP));
+    const palabras = finales.filter((b) => TIPOS_TEXTO.has(b.t)).reduce((s, b) => s + b.x.split(' ').length, 0);
+    if (palabras < 80) throw errorDe('No encontré el texto del artículo. Puede tener muro de pago.', 'extraccion', `jina ${palabras} palabras`);
+    return { bloques: finales, palabras, autor };
   }
 
   function aBloques(html, url) {
@@ -239,9 +340,9 @@
         if (json) body.response_format = { type: 'json_object' };
         let r;
         try {
-          r = await fetch(GROQ_URL, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          r = await pedir(GROQ_URL, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body, timeout: 90000 });
         } catch { ultimoError = 'Sin conexión con Groq.'; await dormir(1500); continue; }
-        const texto = await r.text();
+        const texto = r.texto;
         if (r.ok) {
           const data = extraerJson(texto);
           const contenido = data?.choices?.[0]?.message?.content || '';
@@ -253,7 +354,7 @@
         if (r.status === 401) { const e = new Error('Tu clave de Groq no es válida.'); e.tipo = 'clave'; throw e; }
         if (r.status === 429) {
           if (/per day|TPD|RPD/i.test(texto)) { ultimoError = `Límite diario agotado en ${modelo}.`; break; }
-          const espera = Math.min(30, Number(r.headers.get('retry-after')) || 6 * (intento + 1));
+          const espera = Math.min(30, Number(r.header('retry-after')) || 6 * (intento + 1));
           lectorEstado(`Groq pide esperar ${espera} s…`);
           await dormir(espera * 1000);
           continue;
@@ -323,10 +424,7 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
     const p = (async () => {
       let art = await Repo.articulo(n.id);
       if (!art || !art.bloques?.length) {
-        if (esLectorDe(n.id)) lectorEstado('Descargando el artículo…');
-        const html = await descargarHtml(n.url);
-        if (esLectorDe(n.id)) lectorEstado('Extrayendo el texto…');
-        const ex = extraer(html, n.url);
+        const ex = await obtenerArticulo(n.url, (txt) => { if (esLectorDe(n.id)) lectorEstado(txt); });
         art = { id: n.id, url: n.url, idioma: esIngles(n) ? 'en' : 'es', bloques: ex.bloques, palabras: ex.palabras, autor: ex.autor, tr: {}, descargado: Date.now() };
         await Repo.guardarArticulo(art);
       }
@@ -584,12 +682,9 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
   }
 
   function avisoError(e) {
-    if (e.tipo === 'cors') {
-      return `<div class="lec-aviso"><p><strong>Tu navegador bloquea la descarga directa del artículo.</strong> En el APK de Android funciona sin configurar nada. En la versión web necesitas el proxy gratuito de Cloudflare (instrucciones en el README).</p>
-        <button class="boton" data-lector="ajustes">Configurar proxy</button></div>`;
-    }
     if (e.tipo === 'sinclave' || e.tipo === 'clave') return avisoClave();
     return `<div class="lec-aviso"><p><strong>No pude cargar el texto completo.</strong> ${esc(e.message || '')}</p>
+      ${e.detalle ? `<p class="lec-detalle mono">Detalle: ${esc(e.detalle)}</p>` : ''}
       <button class="boton" data-lector="reintentar">Reintentar</button></div>`;
   }
 
@@ -677,7 +772,7 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
       <div class="fila-botones"><button class="boton" data-accion="probarclave">Probar clave</button></div>
       <div class="ajuste"><div>Traducir al abrir<small>Si lo apagas, el artículo abre en inglés y traduces con un toque</small></div>
         <button class="interruptor" role="switch" aria-checked="${a.autoTraducir}" data-ajuste="autoTraducir" aria-label="Traducir al abrir"></button></div>
-      ${NATIVO ? '' : `<label class="campo"><span>Proxy para la versión web <small>Solo hace falta en el navegador. Pega la URL de tu Worker de Cloudflare (ver README).</small></span>
+      ${NATIVO ? '' : `<label class="campo"><span>Proxy para la versión web <small>Opcional. Sin proxy, la versión web usa el lector externo Jina. Con tu propio Worker de Cloudflare (ver README) descargas directo.</small></span>
         <input id="inProxy" type="url" autocapitalize="off" spellcheck="false" placeholder="https://radar-proxy.tu-usuario.workers.dev/?k=…" value="${esc(a.proxy)}"></label>`}
 
       <h2 class="rotulo" style="margin-top:22px">Pantalla</h2>
@@ -711,7 +806,7 @@ Responde SOLO con JSON: {"t":["...", "..."]}`;
     // si el lector quedó abierto esperando la clave, traduce al volver
     if (!lector.nota) return;
     if (lector.art && necesitaTraduccion(lector.art) && estado.ajustes.groqKey && !enCurso.has(lector.nota.id) && estado.ajustes.autoTraducir) iniciarTraduccion();
-    else if (lector.error && (lector.error.tipo === 'cors' ? estado.ajustes.proxy : true)) cargarEnLector();
+    else if (lector.error) cargarEnLector();
     else pintarLector();
   }
 
