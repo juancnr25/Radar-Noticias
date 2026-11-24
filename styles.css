@@ -206,3 +206,60 @@ h1 { margin: 0; font-family: var(--mono); font-size: 18px; letter-spacing: .32em
   .nota { grid-template-columns: 1fr 140px; }
   .nota .img { width: 140px; height: 100px; }
 }
+
+/* ---------- lector (texto completo) ---------- */
+.lector {
+  position: fixed; inset: 0; z-index: 40; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: var(--fondo); animation: entrarLector .22s cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes entrarLector { from { transform: translateX(24px); opacity: 0; } }
+.lec-barra {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px;
+  padding: calc(6px + var(--sup)) calc(8px + var(--der)) 6px calc(6px + var(--izq));
+  background: rgba(10, 11, 14, .94); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--linea);
+}
+.lec-estado { flex: 1; min-width: 0; font-size: 11px; color: var(--cian); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+.lec-barra .icono.activo { color: var(--ambar); }
+.chip-idioma { padding: 6px 9px; border-radius: 8px; border: 1px solid var(--linea); font-size: 12px; font-weight: 700; color: var(--ambar); }
+.lec { max-width: 720px; margin: 0 auto; padding-bottom: calc(40px + var(--inf)); }
+.lec > .lec-fig:first-child, .lec-texto > .lec-fig:first-of-type { margin-top: 0; }
+.lec-hero { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: var(--panel-2); }
+.lec-texto { padding: 16px calc(20px + var(--der)) 0 calc(20px + var(--izq)); }
+.lec-titulo { margin: 10px 0 6px; font-family: var(--sans); font-size: 1.55em; font-weight: 700; line-height: 1.22; letter-spacing: -.01em; color: var(--texto); }
+.lec-autor { margin: 0 0 14px; font-size: 12px; color: var(--muy-tenue); }
+.lec-resumen { font-size: 1.05em; color: var(--tenue); border-left: 2px solid var(--ambar); padding-left: 12px; margin: 14px 0 18px; }
+.lec-p, .lec-li, .lec-q {
+  font-family: Georgia, "Noto Serif", "Source Serif Pro", "Times New Roman", serif;
+  font-size: 1.1em; line-height: 1.72; color: #e9e6df; margin: 0 0 1.05em;
+}
+.lec-h { font-size: 1.2em; margin: 1.6em 0 .6em; line-height: 1.3; color: var(--texto); }
+.lec-ul { padding-left: 1.2em; margin: 0 0 1.1em; }
+.lec-li { margin-bottom: .5em; }
+.lec-q { border-left: 3px solid var(--cian); padding: 2px 0 2px 14px; color: #cfd8dc; font-style: italic; margin-left: 0; margin-right: 0; }
+.lec-fig { margin: 1.2em -20px; }
+.lec-fig img { width: 100%; height: auto; display: block; background: var(--panel-2); }
+.lec-cap { display: block; font-family: var(--sans); font-size: .82em; color: var(--muy-tenue); margin: -.6em 0 1.4em; line-height: 1.45; }
+.pendiente { opacity: .45; position: relative; }
+.pendiente::after { content: " ⋯"; color: var(--cian); }
+.lec-aviso { margin: 16px 0 20px; padding: 14px; border-radius: 12px; background: var(--panel); border: 1px solid rgba(245, 158, 11, .35); }
+.lec-aviso p { margin: 0 0 12px; font-size: .93em; color: var(--texto); line-height: 1.5; }
+.lec-cargando { margin-top: 18px; }
+.esq-linea { height: 14px; border-radius: 7px; margin: 0 0 12px; background: linear-gradient(90deg, var(--panel) 25%, var(--panel-2) 50%, var(--panel) 75%); background-size: 200% 100%; animation: brillo 1.3s infinite; }
+.esq-linea.corta { width: 60%; }
+.lec-pie { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--linea); font-size: 13px; color: var(--tenue); }
+.lec-pie p { margin: 0 0 12px; }
+
+/* ---------- campos de ajustes ---------- */
+.campo { display: block; padding: 12px 0; border-bottom: 1px solid var(--linea); }
+.campo > span { display: block; margin-bottom: 8px; }
+.campo small { display: block; color: var(--tenue); font-size: 12px; }
+.campo input, .campo select {
+  width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 10px; font: inherit; font-size: 15px;
+  background: var(--fondo); color: var(--texto); border: 1px solid var(--linea);
+}
+.campo input:focus, .campo select:focus { outline: none; border-color: var(--ambar); }
+.campo input + input, .campo select + input { margin-top: 8px; }
+.campo .fila { display: flex; gap: 8px; }
+.campo .fila input { flex: 1; font-family: var(--mono); font-size: 13px; }
+.fila-botones { padding: 10px 0; border-bottom: 1px solid var(--linea); }

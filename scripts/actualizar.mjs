@@ -155,13 +155,86 @@ function parsearFeed(xml, fuente) {
     .slice(0, fuente.max || 8);
 }
 
-async function leerFuente(f) {
+async function leerFuente(f, url = f.url) {
   if (ENV.FIXTURES) {
-    const p = join(ENV.FIXTURES, hash(f.url) + '.xml');
+    const p = join(ENV.FIXTURES, hash(url) + (f.tipo === 'html' ? '.html' : '.xml'));
     if (!existsSync(p)) throw new Error('sin fixture');
     return readFile(p, 'utf8');
   }
-  return traer(f.url);
+  return traer(url);
+}
+
+// ---------- fuentes sin RSS (tipo "html") ----------
+// Lee la portada o sección, detecta enlaces a artículos y toma título, resumen,
+// imagen y fecha de las etiquetas Open Graph de cada artículo nuevo.
+function metas(html) {
+  const out = {};
+  for (const m of html.matchAll(/<meta\s[^>]*>/gi)) {
+    const tag = m[0];
+    const clave = /(?:property|name|itemprop)\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]?.toLowerCase();
+    const valor = /content\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1];
+    if (clave && valor != null && !(clave in out)) out[clave] = decodificar(valor).trim();
+  }
+  const ld = /"datePublished"\s*:\s*"([^"]+)"/.exec(html);
+  if (ld && !out['article:published_time']) out['article:published_time'] = ld[1];
+  return out;
+}
+
+function enlacesArticulo(html, f) {
+  const base = new URL(f.url);
+  const patron = f.patron ? new RegExp(f.patron) : null;
+  const vistos = new Set(), out = [];
+  for (const m of html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi)) {
+    let u;
+    try { u = new URL(decodificar(m[1]), base); } catch { continue; }
+    if (u.host !== base.host) continue;
+    u.search = '';
+    const s = u.toString();
+    if (vistos.has(s)) continue;
+    const ultimo = u.pathname.split('/').filter(Boolean).pop() || '';
+    const pareceArticulo = patron ? patron.test(s) : (ultimo.split('-').length >= 4 && ultimo.length >= 24);
+    if (!pareceArticulo || /\/(tag|tags|autor|author|categoria|category|page|pagina)\//i.test(u.pathname)) continue;
+    vistos.add(s); out.push(s);
+  }
+  return out;
+}
+
+function categoriaDe(url, f) {
+  if (!f.categoriaPorRuta) return f.categoria;
+  const ruta = new URL(url).pathname.split('/').filter(Boolean);
+  for (const seg of ruta) if (f.categoriaPorRuta[seg]) return f.categoriaPorRuta[seg];
+  return null;
+}
+
+async function leerHtml(f, previos) {
+  const portada = await leerFuente(f);
+  const enlaces = enlacesArticulo(portada, f).filter((u) => categoriaDe(u, f)).slice(0, (f.max || 8) + 6);
+  if (!enlaces.length) throw new Error('no se detectaron artículos en la página');
+  const ahora = Date.now();
+  const items = [];
+  for (let i = 0; i < enlaces.length; i += 4) {
+    const grupo = enlaces.slice(i, i + 4);
+    const res = await Promise.allSettled(grupo.map(async (url) => {
+      const id = hash(normUrl(url));
+      const prev = previos.get(id);
+      if (prev) return { id, titulo: prev.tituloOriginal || prev.titulo, texto: prev.textoOriginal || prev.resumen || '', url: prev.url,
+        imagen: prev.imagen, fecha: prev.fecha, fuente: f.nombre, categoria: prev.categoria, idioma: f.idioma };
+      const m = metas(await leerFuente(f, url));
+      if (m['og:type'] && !/article/i.test(m['og:type'])) return null;
+      const titulo = textoPlano(m['og:title'] || m['twitter:title'] || '').replace(/\s*[|\-–]\s*National Geographic.*$/i, '');
+      if (!titulo) return null;
+      let fecha = Date.parse(m['article:published_time'] || m['article:modified_time'] || m['datepublished'] || '');
+      if (Number.isNaN(fecha) || fecha > ahora + 3600e3) fecha = ahora; // sin fecha: se toma la del primer avistamiento
+      return { id, titulo, texto: recortar(textoPlano(m['og:description'] || m['description'] || ''), 900), url: normUrl(url),
+        imagen: m['og:image'] || m['twitter:image'] || null, fecha: new Date(fecha).toISOString(),
+        fuente: f.nombre, categoria: categoriaDe(url, f), idioma: f.idioma };
+    }));
+    for (const r of res) if (r.status === 'fulfilled' && r.value) items.push(r.value);
+  }
+  return items
+    .filter((n) => ahora - Date.parse(n.fecha) <= (f.dias || 7) * 86400e3)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
+    .slice(0, f.max || 8);
 }
 
 // ---------- Groq ----------
@@ -344,11 +417,12 @@ async function main() {
   const { fuentes } = JSON.parse(await readFile(join(AQUI, 'fuentes.json'), 'utf8'));
   const previo = await datosPrevios();
   const cache = new Map(arr(previo?.items).filter((n) => n.traducido).map((n) => [n.id, n]));
+  const previos = new Map(arr(previo?.items).map((n) => [n.id, n]));
   if (!GROQ_KEY) avisos.push('Falta el secreto GROQ_API_KEY: solo se muestran fuentes en español.');
 
   // 1. Descargar feeds en paralelo
   const estados = [];
-  const resultados = await Promise.allSettled(fuentes.map(async (f) => parsearFeed(await leerFuente(f), f)));
+  const resultados = await Promise.allSettled(fuentes.map(async (f) => (f.tipo === 'html' ? leerHtml(f, previos) : parsearFeed(await leerFuente(f), f))));
   let todas = [];
   resultados.forEach((r, i) => {
     const f = fuentes[i];
@@ -415,7 +489,7 @@ async function main() {
   log(`Escrito ${SALIDA}: ${items.length} notas (${salida.totales.traducidas} traducidas), efemérides ${efem?.items?.length || 0}, resumen ${resumen.items.length}`);
 }
 
-export { parsearFeed, parsearAcontecimientos, limpiarWiki, textoPlano, hash };
+export { parsearFeed, parsearAcontecimientos, limpiarWiki, textoPlano, hash, metas, enlacesArticulo, normUrl };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((e) => { console.error(e); process.exit(1); });

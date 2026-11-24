@@ -1,0 +1,13 @@
+{
+  "appId": "__APP_ID__",
+  "appName": "Radar",
+  "webDir": "www",
+  "backgroundColor": "#0a0b0e",
+  "android": {
+    "backgroundColor": "#0a0b0e",
+    "adjustMarginsForEdgeToEdge": "force"
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}

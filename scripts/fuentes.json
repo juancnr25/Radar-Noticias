@@ -1,23 +1,184 @@
 {
-  "_ayuda": "Agrega o quita fuentes aquí. categoria: tecnologia | hallazgos | ciencia | historia. idioma: es (no se traduce) o en (se traduce con Groq). dias: antigüedad máxima de las notas.",
+  "_ayuda": "Agrega o quita fuentes aquí. categoria: tecnologia | hallazgos | ciencia | historia. idioma: es (no se traduce) o en (se traduce). dias: antigüedad máxima. tipo 'html' = sitio sin RSS: se leen los enlaces de la página indicada (patron opcional = regex de URL de artículo; categoriaPorRuta = categoría según la carpeta de la URL).",
   "fuentes": [
-    { "nombre": "Xataka",               "url": "https://www.xataka.com/feedburner.xml",                 "categoria": "tecnologia", "idioma": "es", "max": 10, "dias": 3 },
-    { "nombre": "Hipertextual",         "url": "https://hipertextual.com/feed",                         "categoria": "tecnologia", "idioma": "es", "max": 10, "dias": 3 },
-    { "nombre": "The Verge",            "url": "https://www.theverge.com/rss/index.xml",                "categoria": "tecnologia", "idioma": "en", "max": 8,  "dias": 3 },
-    { "nombre": "Ars Technica",         "url": "https://feeds.arstechnica.com/arstechnica/index",       "categoria": "tecnologia", "idioma": "en", "max": 8,  "dias": 3 },
-    { "nombre": "TechCrunch",           "url": "https://techcrunch.com/feed/",                          "categoria": "tecnologia", "idioma": "en", "max": 6,  "dias": 3 },
-
-    { "nombre": "MIT Technology Review","url": "https://www.technologyreview.com/feed/",                "categoria": "hallazgos",  "idioma": "en", "max": 8,  "dias": 5 },
-    { "nombre": "IEEE Spectrum",        "url": "https://spectrum.ieee.org/feeds/feed.rss",              "categoria": "hallazgos",  "idioma": "en", "max": 8,  "dias": 5 },
-    { "nombre": "ScienceDaily Tech",    "url": "https://www.sciencedaily.com/rss/top/technology.xml",   "categoria": "hallazgos",  "idioma": "en", "max": 8,  "dias": 5 },
-
-    { "nombre": "NASA",                 "url": "https://www.nasa.gov/news-release/feed/",               "categoria": "ciencia",    "idioma": "en", "max": 6,  "dias": 5 },
-    { "nombre": "Quanta Magazine",      "url": "https://api.quantamagazine.org/feed/",                  "categoria": "ciencia",    "idioma": "en", "max": 6,  "dias": 7 },
-    { "nombre": "ScienceDaily",         "url": "https://www.sciencedaily.com/rss/top/science.xml",      "categoria": "ciencia",    "idioma": "en", "max": 8,  "dias": 4 },
-    { "nombre": "Phys.org",             "url": "https://phys.org/rss-feed/",                            "categoria": "ciencia",    "idioma": "en", "max": 8,  "dias": 3 },
-
-    { "nombre": "La Brújula Verde",     "url": "https://www.labrujulaverde.com/feed",                   "categoria": "historia",   "idioma": "es", "max": 10, "dias": 10 },
-    { "nombre": "Smithsonian Historia", "url": "https://www.smithsonianmag.com/rss/history/",            "categoria": "historia",   "idioma": "en", "max": 6,  "dias": 21 },
-    { "nombre": "Smithsonian Ciencia",  "url": "https://www.smithsonianmag.com/rss/science-nature/",     "categoria": "ciencia",    "idioma": "en", "max": 5,  "dias": 14 }
+    {
+      "nombre": "Xataka",
+      "url": "https://www.xataka.com/feedburner.xml",
+      "categoria": "tecnologia",
+      "idioma": "es",
+      "max": 10,
+      "dias": 3
+    },
+    {
+      "nombre": "Hipertextual",
+      "url": "https://hipertextual.com/feed",
+      "categoria": "tecnologia",
+      "idioma": "es",
+      "max": 10,
+      "dias": 3
+    },
+    {
+      "nombre": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "categoria": "tecnologia",
+      "idioma": "en",
+      "max": 8,
+      "dias": 3
+    },
+    {
+      "nombre": "Ars Technica",
+      "url": "https://feeds.arstechnica.com/arstechnica/index",
+      "categoria": "tecnologia",
+      "idioma": "en",
+      "max": 8,
+      "dias": 3
+    },
+    {
+      "nombre": "TechCrunch",
+      "url": "https://techcrunch.com/feed/",
+      "categoria": "tecnologia",
+      "idioma": "en",
+      "max": 6,
+      "dias": 3
+    },
+    {
+      "nombre": "MIT Technology Review",
+      "url": "https://www.technologyreview.com/feed/",
+      "categoria": "hallazgos",
+      "idioma": "en",
+      "max": 8,
+      "dias": 5
+    },
+    {
+      "nombre": "IEEE Spectrum",
+      "url": "https://spectrum.ieee.org/feeds/feed.rss",
+      "categoria": "hallazgos",
+      "idioma": "en",
+      "max": 8,
+      "dias": 5
+    },
+    {
+      "nombre": "ScienceDaily Tech",
+      "url": "https://www.sciencedaily.com/rss/top/technology.xml",
+      "categoria": "hallazgos",
+      "idioma": "en",
+      "max": 8,
+      "dias": 5
+    },
+    {
+      "nombre": "NASA",
+      "url": "https://www.nasa.gov/news-release/feed/",
+      "categoria": "ciencia",
+      "idioma": "en",
+      "max": 6,
+      "dias": 5
+    },
+    {
+      "nombre": "Quanta Magazine",
+      "url": "https://api.quantamagazine.org/feed/",
+      "categoria": "ciencia",
+      "idioma": "en",
+      "max": 6,
+      "dias": 7
+    },
+    {
+      "nombre": "ScienceDaily",
+      "url": "https://www.sciencedaily.com/rss/top/science.xml",
+      "categoria": "ciencia",
+      "idioma": "en",
+      "max": 8,
+      "dias": 4
+    },
+    {
+      "nombre": "Phys.org",
+      "url": "https://phys.org/rss-feed/",
+      "categoria": "ciencia",
+      "idioma": "en",
+      "max": 8,
+      "dias": 3
+    },
+    {
+      "nombre": "La Brújula Verde",
+      "url": "https://www.labrujulaverde.com/feed",
+      "categoria": "historia",
+      "idioma": "es",
+      "max": 10,
+      "dias": 10
+    },
+    {
+      "nombre": "Smithsonian Historia",
+      "url": "https://www.smithsonianmag.com/rss/history/",
+      "categoria": "historia",
+      "idioma": "en",
+      "max": 6,
+      "dias": 21
+    },
+    {
+      "nombre": "Smithsonian Ciencia",
+      "url": "https://www.smithsonianmag.com/rss/science-nature/",
+      "categoria": "ciencia",
+      "idioma": "en",
+      "max": 5,
+      "dias": 14
+    },
+    {
+      "nombre": "National Geographic",
+      "tipo": "html",
+      "url": "https://www.nationalgeographic.com/latest-stories/",
+      "patron": "^https://www\\.nationalgeographic\\.com/(science|history|animals|environment|health)/article/",
+      "categoriaPorRuta": {
+        "science": "ciencia",
+        "animals": "ciencia",
+        "environment": "ciencia",
+        "health": "ciencia",
+        "history": "historia"
+      },
+      "categoria": "ciencia",
+      "idioma": "en",
+      "max": 8,
+      "dias": 10
+    },
+    {
+      "nombre": "Historia National Geographic",
+      "tipo": "html",
+      "url": "https://historia.nationalgeographic.com.es/",
+      "categoria": "historia",
+      "idioma": "es",
+      "max": 6,
+      "dias": 14
+    },
+    {
+      "nombre": "National Geographic España",
+      "tipo": "html",
+      "url": "https://www.nationalgeographic.com.es/ciencia",
+      "categoria": "ciencia",
+      "idioma": "es",
+      "max": 6,
+      "dias": 14
+    },
+    {
+      "nombre": "Muy Interesante",
+      "url": "https://muyinteresante.okdiario.com/feed/",
+      "categoria": "ciencia",
+      "idioma": "es",
+      "max": 8,
+      "dias": 4
+    },
+    {
+      "nombre": "Live Science",
+      "url": "https://www.livescience.com/feeds.xml",
+      "categoria": "hallazgos",
+      "idioma": "en",
+      "max": 8,
+      "dias": 4
+    },
+    {
+      "nombre": "Space.com",
+      "url": "https://www.space.com/feeds.xml",
+      "categoria": "ciencia",
+      "idioma": "en",
+      "max": 6,
+      "dias": 4
+    }
   ]
 }

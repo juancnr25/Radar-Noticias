@@ -1,12 +1,12 @@
 /* Radar · service worker. Sube CACHE_VERSION en cada cambio de la app. */
-const CACHE_VERSION = 'radar-v1.0.0';
+const CACHE_VERSION = 'radar-v1.1.0';
 const SHELL = `${CACHE_VERSION}-shell`;
 const DATOS = 'radar-datos';
 const IMAGENES = 'radar-img';
 const MAX_IMAGENES = 160;
 
 const ARCHIVOS = [
-  './', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
+  './', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'vendor/Readability.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-64.png',
 ];
 
