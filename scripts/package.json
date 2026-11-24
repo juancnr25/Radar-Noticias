@@ -1,0 +1,7 @@
+{
+  "name": "radar-recolector",
+  "private": true,
+  "description": "Recolector de noticias de Radar (corre en GitHub Actions)",
+  "scripts": { "actualizar": "node actualizar.mjs" },
+  "dependencies": { "fast-xml-parser": "^4.5.0" }
+}
